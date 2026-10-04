@@ -6,6 +6,7 @@ Setup and external tools: see README [Requirements](README.md#requirements) and 
 
 ```bash
 uv run python -m unittest discover -s tests -v # Run Python regressions and browser DOM tests
+uv run pyright # Check Python types in standard mode
 node --check static/app.js # Check main browser script syntax
 node --check static/scan-control.js # Check scan-control script syntax
 for script in static/js/*.js; do node --check "$script" || exit; done # Check feature module syntax

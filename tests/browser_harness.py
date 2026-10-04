@@ -106,7 +106,7 @@ def run_browser(prelude: str, scenario: str, remote_prelude: str = "") -> dict[s
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, _format: str, *_args: object) -> None:
+        def log_message(self, format: str, *args: object) -> None:
             pass
 
     with tempfile.TemporaryDirectory() as temporary_directory:

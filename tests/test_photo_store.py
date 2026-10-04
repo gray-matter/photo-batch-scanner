@@ -1,12 +1,13 @@
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 import app
-from photo_store import PhotoNotFound, PhotoStore
+from photo_store import PhotoDirectory, PhotoNotFound, PhotoStore
 
 
 class PhotoStoreTests(unittest.TestCase):
@@ -51,7 +52,7 @@ class PhotoStoreTests(unittest.TestCase):
     def test_photo_lists_keep_reverse_filename_order_and_internal_alias_names(self) -> None:
         for kind, endpoint in (("cropped", "/api/photos"), ("done", "/api/photos/done")):
             with self.subTest(directory=kind):
-                directory = self.store.directory(kind)
+                directory = self.store.directory(cast(PhotoDirectory, kind))
                 for filename in ("scan_02.jpg", "scan_10.jpg", "scan_01.jpg", "ignored.png"):
                     (directory / filename).write_bytes(b"fixture")
                 (directory / "zz_alias.jpg").symlink_to("scan_01.jpg")

@@ -9,7 +9,7 @@ A local FastAPI web app for digitizing batches of printed photos with an eSCL/Ai
 - `exiftool` on `PATH` for reading and writing photo metadata.
 - An eSCL/AirScan scanner reachable through local-network mDNS and HTTP for the scan workflow.
 - Internet access for Leaflet assets, OpenStreetMap tiles, and Nominatim address search.
-- Development only: Node.js for JavaScript syntax checks; Google Chrome or Chromium for the gallery DOM tests. The Python tests use standard-library `unittest`.
+- Development only: Pyright for Python type checking, Node.js for JavaScript syntax checks, and Google Chrome or Chromium for the gallery DOM tests. The Python tests use standard-library `unittest`.
 
 ## Setup
 
@@ -17,6 +17,12 @@ From the repository root:
 
 ```bash
 uv sync --locked
+```
+
+Run the Python type checker in standard mode with:
+
+```bash
+uv run pyright
 ```
 
 ## Run

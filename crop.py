@@ -2,6 +2,7 @@ import sys
 import threading
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -9,7 +10,7 @@ from PIL import Image, ImageOps
 
 from photo_processing import extract_crop_outputs
 
-_FACE_DETECTOR = cv2.FaceDetectorYN_create(
+_FACE_DETECTOR = cast(Any, cv2).FaceDetectorYN_create(
     str(Path(__file__).parent / "data" / "face_detection_yunet.onnx"), "", (320, 320), score_threshold=0.6
 )
 _HIGH_CONFIDENCE = 0.85
@@ -67,7 +68,7 @@ def find_background_bands(density: np.ndarray, gap_frac: float, min_width: int) 
     return bands
 
 
-def validate_quad_points(quad: Sequence[Sequence[float]]) -> np.ndarray:
+def validate_quad_points(quad: Sequence[Sequence[float]] | np.ndarray) -> np.ndarray:
     """Validate coordinate structure before geometry or OpenCV processing."""
     try:
         pts = np.asarray(quad, dtype=np.float64)

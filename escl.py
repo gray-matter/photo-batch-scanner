@@ -2,7 +2,7 @@
 over plain HTTP. No vendor driver or SANE backend needed."""
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import httpx
 from zeroconf import ServiceBrowser, Zeroconf
@@ -41,7 +41,7 @@ def _browse_once(timeout: float) -> list[ScannerInfo]:
     class Listener:
         def add_service(self, zc: Zeroconf, service_type: str, name: str) -> None:
             info = zc.get_service_info(service_type, name)
-            if info is None:
+            if info is None or info.server is None:
                 return
             host = info.server.rstrip(".")
             found.append(ScannerInfo(name=name, base_url=f"http://{host}:{info.port}/eSCL"))
@@ -54,7 +54,7 @@ def _browse_once(timeout: float) -> list[ScannerInfo]:
 
     zc = Zeroconf()
     try:
-        ServiceBrowser(zc, "_uscan._tcp.local.", Listener())
+        ServiceBrowser(zc, "_uscan._tcp.local.", cast(Any, Listener()))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline and not found:
             time.sleep(0.1)

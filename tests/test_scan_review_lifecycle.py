@@ -16,7 +16,7 @@ from escl import ProgressCallback, ScannerInfo
 from scan_jobs import PhotoDetector, ScanCoordinator, ScanTransfer
 
 PHOTO = np.zeros((2, 2, 3), dtype=np.uint8)
-QUAD = [[0, 0], [10, 0], [10, 10], [0, 10]]
+QUAD: list[list[float]] = [[0, 0], [10, 0], [10, 10], [0, 10]]
 SCANNER = ScannerInfo(name="fixture", base_url="http://scanner.invalid/eSCL")
 
 

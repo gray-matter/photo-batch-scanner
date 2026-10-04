@@ -16,7 +16,7 @@ Quads = list[list[list[float]]]
 
 
 class PhotoDetector(Protocol):
-    def __call__(self, image: np.ndarray, *, expected_count: int | None = None) -> Quads: ...
+    def __call__(self, image: np.ndarray, /, *, expected_count: int | None = None) -> Quads: ...
 
 
 class ScanTransfer(Protocol):

@@ -77,9 +77,9 @@ class TagMetadataTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         metadata = self.read_metadata()
-        self.assertAlmostEqual(metadata["GPSLatitude"], -33.8688, places=4)
+        self.assertAlmostEqual(float(metadata["GPSLatitude"]), -33.8688, places=4)
         self.assertEqual(metadata["GPSLatitudeRef"], "S")
-        self.assertAlmostEqual(metadata["GPSLongitude"], -151.2093, places=4)
+        self.assertAlmostEqual(float(metadata["GPSLongitude"]), -151.2093, places=4)
         self.assertEqual(metadata["GPSLongitudeRef"], "W")
 
     def test_clearing_date_preserves_gps_and_clearing_gps_preserves_date(self) -> None:
@@ -93,8 +93,8 @@ class TagMetadataTests(unittest.TestCase):
         self.assertEqual(cleared_date.status_code, 200, cleared_date.text)
         after_date_clear = self.read_metadata()
         self.assertNotIn("DateTimeOriginal", after_date_clear)
-        self.assertAlmostEqual(after_date_clear["GPSLatitude"], -33.8688, places=4)
-        self.assertAlmostEqual(after_date_clear["GPSLongitude"], -151.2093, places=4)
+        self.assertAlmostEqual(float(after_date_clear["GPSLatitude"]), -33.8688, places=4)
+        self.assertAlmostEqual(float(after_date_clear["GPSLongitude"]), -151.2093, places=4)
 
         restored_date = self.client.post(
             "/api/tag", json={"filenames": [self.filename], "date": "2024-02-29T08:15"}

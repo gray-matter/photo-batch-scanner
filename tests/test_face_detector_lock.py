@@ -1,6 +1,6 @@
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -74,7 +74,7 @@ class FaceDetectorLockTests(unittest.TestCase):
         )
 
     def test_detection_exception_releases_lock_for_next_score(self) -> None:
-        detector = unittest.mock.Mock()
+        detector = Mock()
         detector.detect.side_effect = [RuntimeError("detector failed"), (None, None)]
         with patch.object(crop, "_FACE_DETECTOR", detector):
             with self.assertRaisesRegex(RuntimeError, "detector failed"):

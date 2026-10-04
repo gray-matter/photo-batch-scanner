@@ -37,6 +37,7 @@ class _ScanStatusAccessLogFilter(logging.Filter):
             record.name == "uvicorn.access"
             and isinstance(args, tuple)
             and len(args) >= 5
+            and isinstance(args[2], str)
             and args[1] == "GET"
             and args[2].split("?", 1)[0] == "/api/scan/status"
         ):

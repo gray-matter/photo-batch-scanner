@@ -1,4 +1,5 @@
 import unittest
+from typing import Any
 
 from browser_harness import run_browser
 
@@ -164,6 +165,8 @@ results.discarded = requests.filter((request) => request.url.endsWith("/discard"
 
 
 class BrowserWorkflowTests(unittest.TestCase):
+    results: dict[str, Any]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.results = run_browser(PRELUDE, SCENARIO, """

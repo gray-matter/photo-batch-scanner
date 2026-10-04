@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 from unittest.mock import patch
 
 import httpx
@@ -116,7 +116,7 @@ class RotateMetadataTests(unittest.TestCase):
         with Image.new("RGB", (8, 8)) as image:
             image.save(quality_reference, quality=92)
         with Image.open(quality_reference) as reference:
-            expected_quantization = reference.quantization
+            expected_quantization = cast(Any, reference).quantization
         quality_reference.unlink()
 
         for orientation, corners in oriented_corners.items():
@@ -133,12 +133,12 @@ class RotateMetadataTests(unittest.TestCase):
                         self.assertEqual(rotated.size, expected_size)
                         self.assertEqual(rotated.getexif().get(274), 1)
                         self.assertEqual(rotated.info.get("icc_profile"), self.icc_profile)
-                        self.assertEqual(rotated.quantization, expected_quantization)
+                        self.assertEqual(cast(Any, rotated).quantization, expected_quantization)
                         width, height = rotated.size
                         samples = [(10, 10), (width - 10, 10), (width - 10, height - 10), (10, height - 10)]
                         for sample, color_index in zip(samples, expected_corners):
-                            actual = rotated.getpixel(sample)
-                            expected = self.colors[color_index]
+                            actual = cast(tuple[int, ...], rotated.getpixel(sample))
+                            expected = cast(tuple[int, ...], self.colors[color_index])
                             self.assertLess(max(abs(a - e) for a, e in zip(actual, expected)), 15)
 
     def test_partial_encoding_failure_preserves_source_and_cleans_temporary_file(self) -> None:
