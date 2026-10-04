@@ -8,6 +8,7 @@ Setup and external tools: see README [Requirements](README.md#requirements) and 
 uv run python -m unittest discover -s tests -v # Run Python regressions and browser DOM tests
 node --check static/app.js # Check main browser script syntax
 node --check static/scan-control.js # Check scan-control script syntax
+for script in static/js/*.js; do node --check "$script" || exit; done # Check feature module syntax
 ```
 
 Primary run workflow: same as README **[Run](README.md#run)**.

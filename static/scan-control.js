@@ -1,3 +1,5 @@
+import { checkedRequest, requestJSON, createPolling } from "./js/api.js";
+
 const scanButton = document.getElementById("remote-scan-btn");
 const statusText = document.getElementById("remote-status");
 const progress = document.getElementById("remote-progress");
@@ -9,8 +11,6 @@ const stageLabels = {
   transferring: "Transferring the image…",
   detecting: "Finding photos in the scan…",
 };
-
-let statusRequestActive = false;
 
 function setProgress(stage, done, total) {
   progress.classList.toggle("visible", stage !== "idle" && stage !== "error" && stage !== "review");
@@ -29,12 +29,8 @@ function setProgress(stage, done, total) {
 }
 
 async function refreshStatus() {
-  if (statusRequestActive) return;
-  statusRequestActive = true;
   try {
-    const response = await fetch("/api/scan/status");
-    if (!response.ok) throw new Error("Couldn't get scan status");
-    const state = await response.json();
+    const state = await requestJSON("/api/scan/status", {}, { errorMessage: "Couldn't get scan status" });
     const active = ["discovering", "scanning", "transferring", "detecting"].includes(state.stage);
     scanButton.disabled = active;
     setProgress(state.stage, state.done, state.total);
@@ -61,26 +57,22 @@ async function refreshStatus() {
     }
   } catch (error) {
     statusText.textContent = error.message;
-  } finally {
-    statusRequestActive = false;
   }
 }
+
+const polling = createPolling(refreshStatus, 1000);
 
 scanButton.addEventListener("click", async () => {
   scanButton.disabled = true;
   statusText.textContent = "Starting scan…";
   try {
-    const response = await fetch("/api/scan", { method: "POST" });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || "Couldn't start the scan");
-    }
-    await refreshStatus();
+    await checkedRequest("/api/scan", { method: "POST" }, { errorMessage: "Couldn't start the scan", detail: true });
+    await polling.refresh();
   } catch (error) {
     statusText.textContent = error.message;
-    await refreshStatus();
+    await polling.refresh();
   }
 });
 
-refreshStatus();
-setInterval(refreshStatus, 1000);
+polling.refresh();
+polling.start();

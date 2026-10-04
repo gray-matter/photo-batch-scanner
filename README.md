@@ -56,7 +56,14 @@ mass-scanner/                      # Local scanner app and photo-processing tool
 ├── exiftags.py                    # exiftool subprocess wrapper for metadata status and edits
 ├── static/                        # Browser UI served directly by FastAPI
 │   ├── index.html                 # Gallery, scan review and tagging dialogs
-│   ├── app.js                     # Gallery state, boundary editor, Leaflet map and API calls
+│   ├── app.js                     # Main-page feature wiring (native ES modules)
+│   ├── js/                        # Locally owned feature state and shared browser mechanics
+│   │   ├── api.js                 # Checked requests and nonoverlapping polling
+│   │   ├── modals.js              # Confirmation, photo viewer, focus and loading helpers
+│   │   ├── gallery.js             # Photo cards, ordering, selection and gallery actions
+│   │   ├── scan-status.js         # Main-page scan progress and review discovery
+│   │   ├── tagging.js             # Date/location tagging, Leaflet map and recent addresses
+│   │   └── review.js              # Scan boundary editor, re-detection and extraction
 │   ├── scan-control.html          # Scan-only interface for a second device
 │   ├── scan-control.js            # Remote scan trigger and progress polling
 │   └── style.css                  # Shared layout and light/dark styling
