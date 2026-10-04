@@ -1,5 +1,6 @@
 import logging
 import shutil
+import tempfile
 import threading
 import time
 from datetime import datetime
@@ -11,7 +12,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from crop import detect_photo_regions, extract_photo, load_scan_image
@@ -279,13 +280,31 @@ class RotateBody(BaseModel):
 
 
 @app.post("/api/photos/{filename}/rotate")
-def api_rotate(filename: str, body: RotateBody):
+def api_rotate(filename: str, body: RotateBody) -> dict[str, bool]:
     if body.degrees not in (90, 180, 270):
         raise HTTPException(400, "degrees must be 90, 180, or 270")
     path = safe_cropped_path(filename)
-    im = Image.open(path)
-    im = im.rotate(body.degrees, expand=True)
-    im.save(path, quality=92)
+    temporary_path: Path | None = None
+    try:
+        with Image.open(path) as source:
+            with ImageOps.exif_transpose(source) as oriented:
+                exif = oriented.getexif()
+                exif[274] = 1
+                with (
+                    oriented.rotate(body.degrees, expand=True) as rotated,
+                    tempfile.NamedTemporaryFile(
+                        dir=path.parent, prefix=f".{path.stem}-", suffix=".jpg", delete=False
+                    ) as temporary_file,
+                ):
+                    temporary_path = Path(temporary_file.name)
+                    rotated.save(
+                        temporary_file, format="JPEG", quality=92, exif=exif,
+                        icc_profile=source.info.get("icc_profile"),
+                    )
+        temporary_path.replace(path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return {"ok": True}
 
 
