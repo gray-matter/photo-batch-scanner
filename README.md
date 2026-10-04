@@ -61,3 +61,5 @@ Run the standard-library test suite with:
 ```bash
 uv run python -m unittest discover -s tests -v
 ```
+
+The gallery filename safety tests also run `static/app.js` in headless Chrome or Chromium to inspect the rendered DOM. They skip when neither browser is installed.
