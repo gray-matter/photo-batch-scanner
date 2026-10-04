@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import threading
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 import cv2
@@ -10,6 +11,7 @@ _FACE_DETECTOR = cv2.FaceDetectorYN_create(
     str(Path(__file__).parent / "data" / "face_detection_yunet.onnx"), "", (320, 320), score_threshold=0.6
 )
 _HIGH_CONFIDENCE = 0.85
+_FACE_DETECTOR_LOCK = threading.Lock()
 
 
 def _face_score(img_bgr: np.ndarray) -> tuple[int, float]:
@@ -19,8 +21,9 @@ def _face_score(img_bgr: np.ndarray) -> tuple[int, float]:
     fantôme de faible confiance mais de grande taille (ex. un rocher ou une
     texture) peut l'emporter sur plusieurs vrais visages plus petits."""
     h, w = img_bgr.shape[:2]
-    _FACE_DETECTOR.setInputSize((w, h))
-    _, faces = _FACE_DETECTOR.detect(img_bgr)
+    with _FACE_DETECTOR_LOCK:
+        _FACE_DETECTOR.setInputSize((w, h))
+        _, faces = _FACE_DETECTOR.detect(img_bgr)
     if faces is None:
         return (0, 0.0)
     confidences = [f[-1] for f in faces]
