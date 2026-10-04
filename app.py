@@ -1,31 +1,29 @@
 import logging
-import shutil
-import tempfile
 import time
-from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import cv2
 import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
-from crop import detect_photo_regions, extract_photo, load_scan_image, validate_quad_points, write_crop_outputs
+from crop import detect_photo_regions, extract_photo, load_scan_image, validate_quad_points
 from escl import discover_scanner, scan_to_file
 from exiftags import apply_tags, read_tag_status
+from photo_processing import extract_crop_outputs
+from photo_store import PhotoNotFound, PhotoStore
 from scan_jobs import ScanCoordinator
 
 BASE_DIR = Path(__file__).parent
-RAW_DIR = BASE_DIR / "scans" / "raw"
-CROPPED_DIR = BASE_DIR / "scans" / "cropped"
-DONE_DIR = BASE_DIR / "scans" / "done"
-for d in (RAW_DIR, CROPPED_DIR, DONE_DIR):
-    d.mkdir(parents=True, exist_ok=True)
+photo_store = PhotoStore(
+    raw_directory=BASE_DIR / "scans" / "raw",
+    cropped_directory=BASE_DIR / "scans" / "cropped",
+    done_directory=BASE_DIR / "scans" / "done",
+)
 
 NOMINATIM_HEADERS = {"User-Agent": "mass-scanner/0.1 (personal photo geotagging tool)"}
 
@@ -56,37 +54,14 @@ scan_coordinator = ScanCoordinator(
     transfer=scan_to_file,
     load_image=load_scan_image,
     detect=detect_photo_regions,
-    raw_directory=RAW_DIR,
+    raw_directory=photo_store.raw_directory,
 )
 
 
-def safe_cropped_path(filename: str) -> Path:
-    path = (CROPPED_DIR / filename).resolve()
-    if path.parent != CROPPED_DIR.resolve() or not path.is_file():
-        raise HTTPException(404, "Photo not found")
-    return path
-
-
-def safe_raw_path(filename: str) -> Path:
-    path = (RAW_DIR / filename).resolve()
-    if path.parent != RAW_DIR.resolve() or not path.is_file():
-        raise HTTPException(404, "Scan not found")
-    return path
-
-
-def safe_done_path(filename: str) -> Path:
-    path = (DONE_DIR / filename).resolve()
-    if path.parent != DONE_DIR.resolve() or not path.is_file():
-        raise HTTPException(404, "Photo not found")
-    return path
-
-
-def safe_tag_path(filename: str) -> Path:
-    for directory in (CROPPED_DIR, DONE_DIR):
-        path = (directory / filename).resolve()
-        if path.parent == directory.resolve() and path.is_file():
-            return path
-    raise HTTPException(404, "Photo not found")
+@app.exception_handler(PhotoNotFound)
+def photo_not_found_handler(request: Request, error: PhotoNotFound) -> JSONResponse:
+    detail = "Scan not found" if error.directory == "raw" else "Photo not found"
+    return JSONResponse(status_code=404, content={"detail": detail})
 
 
 @app.post("/api/scan")
@@ -112,7 +87,7 @@ class DetectBody(BaseModel):
 
 @app.post("/api/raw/{filename}/detect")
 def api_detect(filename: str, body: DetectBody) -> dict[str, Any]:
-    path = safe_raw_path(filename)
+    path = photo_store.path("raw", filename)
     try:
         return dict(scan_coordinator.redetect(path, filename=filename, expected_count=body.expected_count))
     except (OSError, ValueError, cv2.error) as error:
@@ -121,7 +96,7 @@ def api_detect(filename: str, body: DetectBody) -> dict[str, Any]:
 
 @app.get("/api/photos")
 def api_photos():
-    files = sorted(CROPPED_DIR.glob("*.jpg"), reverse=True)
+    files = photo_store.photos("cropped")
     tag_status = read_tag_status(files)
     return {
         "photos": [
@@ -133,7 +108,7 @@ def api_photos():
 
 @app.get("/api/photos/done")
 def api_photos_done():
-    files = sorted(DONE_DIR.glob("*.jpg"), reverse=True)
+    files = photo_store.photos("done")
     tag_status = read_tag_status(files)
     return {
         "photos": [
@@ -145,49 +120,42 @@ def api_photos_done():
 
 @app.get("/api/photos/{filename}")
 def api_get_photo(filename: str):
-    return FileResponse(safe_cropped_path(filename))
+    return FileResponse(photo_store.path("cropped", filename))
 
 
 @app.delete("/api/photos/{filename}")
 def api_delete_photo(filename: str):
-    path = safe_cropped_path(filename)
-    path.unlink()
+    photo_store.delete("cropped", filename)
     return {"ok": True}
 
 
 @app.post("/api/photos/{filename}/done")
 def api_mark_done(filename: str):
-    path = safe_cropped_path(filename)
-    dest = DONE_DIR / path.name
-    shutil.move(str(path), str(dest))
+    photo_store.move("cropped", "done", filename)
     return {"ok": True}
 
 
 @app.post("/api/photos/mark-tagged-done")
 def api_mark_tagged_done():
-    files = sorted(CROPPED_DIR.glob("*.jpg"), reverse=True)
+    files = photo_store.photos("cropped")
     tag_status = read_tag_status(files)
     marked = [
         path for path in files
         if tag_status.get(path.name, {}).get("gps") and tag_status.get(path.name, {}).get("time")
     ]
-    for path in marked:
-        shutil.move(str(path), str(DONE_DIR / path.name))
+    photo_store.mark_listed_done(path.name for path in marked)
     return {"photos": [path.name for path in marked]}
 
 
 @app.delete("/api/photos/done/{filename}")
 def api_delete_done_photo(filename: str):
-    path = safe_done_path(filename)
-    path.unlink()
+    photo_store.delete("done", filename)
     return {"ok": True}
 
 
 @app.post("/api/photos/done/{filename}/restore")
 def api_restore_done_photo(filename: str):
-    path = safe_done_path(filename)
-    dest = CROPPED_DIR / path.name
-    shutil.move(str(path), str(dest))
+    photo_store.move("done", "cropped", filename)
     return {"ok": True}
 
 
@@ -199,28 +167,7 @@ class RotateBody(BaseModel):
 def api_rotate(filename: str, body: RotateBody) -> dict[str, bool]:
     if body.degrees not in (90, 180, 270):
         raise HTTPException(400, "degrees must be 90, 180, or 270")
-    path = safe_cropped_path(filename)
-    temporary_path: Path | None = None
-    try:
-        with Image.open(path) as source:
-            with ImageOps.exif_transpose(source) as oriented:
-                exif = oriented.getexif()
-                exif[274] = 1
-                with (
-                    oriented.rotate(body.degrees, expand=True) as rotated,
-                    tempfile.NamedTemporaryFile(
-                        dir=path.parent, prefix=f".{path.stem}-", suffix=".jpg", delete=False
-                    ) as temporary_file,
-                ):
-                    temporary_path = Path(temporary_file.name)
-                    rotated.save(
-                        temporary_file, format="JPEG", quality=92, exif=exif,
-                        icc_profile=source.info.get("icc_profile"),
-                    )
-        temporary_path.replace(path)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    photo_store.rotate(filename, body.degrees)
     return {"ok": True}
 
 
@@ -237,18 +184,12 @@ def api_extract(filename: str, body: ExtractBody):
             validate_quad_points(quad)
         except ValueError as exc:
             raise HTTPException(400, f"Selection {i}: {exc}") from exc
-    path = safe_raw_path(filename)
+    path = photo_store.path("raw", filename)
     img = load_scan_image(path)
-    stem = path.stem
-
-    def outputs() -> Iterator[tuple[Path, Any]]:
-        for i, quad in enumerate(body.quads, start=1):
-            crop = extract_photo(img, quad)
-            if crop is not None:
-                yield CROPPED_DIR / f"{stem}_photo_{i:02d}.jpg", crop
-
     try:
-        output_paths = write_crop_outputs(outputs(), 92)
+        output_paths = extract_crop_outputs(
+            img, body.quads, path.stem, photo_store.cropped_directory, 92, extractor=extract_photo,
+        )
     except OSError as exc:
         raise HTTPException(500, str(exc)) from exc
     scan_coordinator.remove_review(filename)
@@ -257,8 +198,7 @@ def api_extract(filename: str, body: ExtractBody):
 
 @app.post("/api/raw/{filename}/discard")
 def api_discard_raw(filename: str):
-    path = safe_raw_path(filename)
-    path.unlink()
+    photo_store.delete("raw", filename)
     scan_coordinator.remove_review(filename)
     return {"ok": True}
 
@@ -310,7 +250,7 @@ def api_tag(body: TagBody):
     if body.lat is None and body.date is None and not body.clear_gps and not body.clear_date:
         raise HTTPException(400, "Provide a GPS location, a date, or a removal, or a combination")
 
-    paths = [safe_tag_path(f) for f in body.filenames]
+    paths = [photo_store.tag_path(f) for f in body.filenames]
 
     exif_date = None
     if body.date is not None:
@@ -327,7 +267,7 @@ def api_tag(body: TagBody):
     return {"tagged": [p.name for p in paths]}
 
 
-app.mount("/cropped", StaticFiles(directory=CROPPED_DIR), name="cropped")
-app.mount("/done", StaticFiles(directory=DONE_DIR), name="done")
-app.mount("/raw", StaticFiles(directory=RAW_DIR), name="raw")
+app.mount("/cropped", StaticFiles(directory=photo_store.cropped_directory), name="cropped")
+app.mount("/done", StaticFiles(directory=photo_store.done_directory), name="done")
+app.mount("/raw", StaticFiles(directory=photo_store.raw_directory), name="raw")
 app.mount("/", StaticFiles(directory=BASE_DIR / "static", html=True), name="static")

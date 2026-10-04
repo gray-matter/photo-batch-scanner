@@ -11,6 +11,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 import app
+from photo_store import PhotoStore
 from escl import ProgressCallback, ScannerInfo
 from scan_jobs import PhotoDetector, ScanCoordinator, ScanTransfer
 
@@ -43,9 +44,7 @@ def isolated_client(
             raw_directory=raw_directory,
         )
         with (
-            patch.object(app, "RAW_DIR", raw_directory),
-            patch.object(app, "CROPPED_DIR", cropped_directory),
-            patch.object(app, "DONE_DIR", done_directory),
+            patch.object(app, "photo_store", PhotoStore(raw_directory, cropped_directory, done_directory)),
             patch.object(app, "scan_coordinator", coordinator),
             TestClient(app.app) as client,
         ):

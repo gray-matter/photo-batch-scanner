@@ -12,17 +12,24 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageCms
 
 import app
+from photo_store import PhotoStore
 
 
 class RotateMetadataTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
-        self.cropped_directory = Path(self.temporary_directory.name)
+        root = Path(self.temporary_directory.name)
+        self.cropped_directory = root / "cropped"
+        self.cropped_directory.mkdir()
         self.photo_path = self.cropped_directory / "asymmetric.jpg"
         self.icc_profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
         self.colors = [(240, 20, 20), (20, 240, 20), (20, 20, 240), (240, 240, 20)]
-        directory_patch = patch.object(app, "CROPPED_DIR", self.cropped_directory)
+        directory_patch = patch.object(
+            app, "photo_store", PhotoStore(
+                root / "raw", self.cropped_directory, root / "done",
+            ),
+        )
         directory_patch.start()
         self.addCleanup(directory_patch.stop)
         self.client = TestClient(app.app)

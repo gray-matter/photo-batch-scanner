@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import app
+from photo_store import PhotoStore
 
 
 class TagMetadataTests(unittest.TestCase):
@@ -27,7 +28,11 @@ class TagMetadataTests(unittest.TestCase):
         self.cropped_directory = Path(self.temporary_directory.name)
         self.filename = "tag_fixture.jpg"
         Image.new("RGB", (32, 24), "white").save(self.cropped_directory / self.filename)
-        self.client_context = patch.object(app, "CROPPED_DIR", self.cropped_directory)
+        self.client_context = patch.object(
+            app, "photo_store", PhotoStore(
+                self.cropped_directory / "raw", self.cropped_directory, self.cropped_directory / "done",
+            ),
+        )
         self.client_context.start()
         self.client = TestClient(app.app)
 

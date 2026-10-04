@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import app
+from photo_store import PhotoStore
 import crop
 from scan_jobs import ScanCoordinator
 
@@ -39,8 +40,7 @@ class ExtractWriteFailureTests(unittest.TestCase):
         )
         coordinator.prepare_review(self.raw_directory / self.raw_filename)
         for replacement in (
-            patch.object(app, "RAW_DIR", self.raw_directory),
-            patch.object(app, "CROPPED_DIR", self.cropped_directory),
+            patch.object(app, "photo_store", PhotoStore(self.raw_directory, self.cropped_directory, root / "done")),
             patch.object(app, "scan_coordinator", coordinator),
             patch.object(app, "load_scan_image", return_value=PHOTO),
             patch.object(app, "extract_photo", return_value=PHOTO),
@@ -154,6 +154,29 @@ class ExtractWriteFailureTests(unittest.TestCase):
         self.assertEqual(response.json(), {"photos": []})
         self.assertEqual(list(self.cropped_directory.iterdir()), [])
         self.assertIsNone(self.client.get("/api/scan/status").json()["pending_review"])
+
+    def test_api_and_cli_produce_identical_names_and_jpeg_bytes(self) -> None:
+        cli_directory = self.raw_directory.parent / "photos_decoupees"
+        input_path = self.raw_directory / self.raw_filename
+        with Image.new("RGB", (40, 30), (80, 110, 140)) as image:
+            image.save(input_path)
+        quads = [[[0, 0], [39, 0], [39, 29], [0, 29]], [[0, 0]] * 4, QUAD]
+        with (
+            patch.object(app, "load_scan_image", new=crop.load_scan_image),
+            patch.object(app, "extract_photo", new=crop.extract_photo),
+            patch.object(crop, "detect_photo_regions", return_value=quads),
+            patch.object(crop, "detect_upright_rotation", return_value=0),
+            redirect_stdout(io.StringIO()),
+        ):
+            response = self.client.post(f"/api/raw/{self.raw_filename}/extract", json={"quads": quads})
+            cli_paths = crop.crop_scanned_photos(input_path, cli_directory)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"photos": [path.name for path in cli_paths]})
+        self.assertEqual([path.name for path in cli_paths], [
+            "scan_write_failure_photo_01.jpg", "scan_write_failure_photo_03.jpg",
+        ])
+        for path in cli_paths:
+            self.assertEqual(path.read_bytes(), (self.cropped_directory / path.name).read_bytes())
 
 
 class CliCropWriteTests(unittest.TestCase):

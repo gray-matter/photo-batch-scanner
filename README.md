@@ -47,7 +47,10 @@ The CLI writes JPEGs to `photos_decoupees/` beside the input file. Move those JP
 
 ```text
 mass-scanner/                      # Local scanner app and photo-processing tools
-├── app.py                         # FastAPI entrypoint, scan/review lifecycle, gallery and tagging routes
+├── app.py                         # FastAPI entrypoint, scan/review, gallery and tagging routes
+├── scan_jobs.py                   # Scan coordinator, hardware lock, background detection and review queue
+├── photo_store.py                 # Scan/photo directories, safe lookup, listing, moves and metadata-safe rotation
+├── photo_processing.py            # Shared API/CLI crop naming, JPEG staging and publication
 ├── escl.py                        # mDNS discovery and eSCL HTTP scan jobs; also a standalone scan CLI
 ├── crop.py                        # Photo detection, perspective extraction, face-based rotation and crop CLI
 ├── exiftags.py                    # exiftool subprocess wrapper for metadata status and edits

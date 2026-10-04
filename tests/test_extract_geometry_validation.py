@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import app
+from photo_store import PhotoStore
 from scan_jobs import ScanCoordinator
 
 
@@ -30,8 +31,7 @@ class ExtractGeometryValidationTests(unittest.TestCase):
         )
         coordinator.prepare_review(raw_directory / self.filename)
         for replacement in (
-            patch.object(app, "RAW_DIR", raw_directory),
-            patch.object(app, "CROPPED_DIR", self.cropped_directory),
+            patch.object(app, "photo_store", PhotoStore(raw_directory, self.cropped_directory, root / "done")),
             patch.object(app, "scan_coordinator", coordinator),
         ):
             replacement.start()
