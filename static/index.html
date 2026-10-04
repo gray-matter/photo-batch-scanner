@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mass Scanner</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="ic-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="ic-pin" viewBox="0 0 24 24"><path d="M12 21s7-7.2 7-12a7 7 0 10-14 0c0 4.8 7 12 7 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="9" r="2.2" fill="currentColor"/></symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <header>
+    <h1>Mass Scanner</h1>
+    <button id="scan-btn" class="primary" data-loading-text="Scanning…">Scan now</button>
+    <button id="mark-tagged-done-btn" type="button" title="Move photos with both a date and location to Done" data-loading-text="Marking…" disabled>Mark tagged done</button>
+    <div id="scan-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="Scan progress">
+      <div id="scan-progress-bar"></div>
+    </div>
+    <span id="status" role="status" aria-live="polite"></span>
+    <label id="show-done-toggle">
+      <input type="checkbox" id="show-done-checkbox" />
+      Show done photos
+    </label>
+  </header>
+
+  <main>
+    <div id="gallery" aria-busy="false"></div>
+    <p id="empty-msg" style="color: var(--text-muted); display: none;">
+      No photos waiting. Scan a batch, or drop TIFF/JPEG scans into <code>scans/raw/</code>.
+    </p>
+    <p id="select-hint" class="select-hint">Click a photo to select it. Shift+click extends the selection.</p>
+  </main>
+
+  <div id="selection-bar" class="hidden" role="toolbar" aria-label="Batch actions">
+    <span id="selection-count"></span>
+    <div class="selection-actions">
+      <button id="clear-selection-btn" class="link-btn" type="button">Clear</button>
+      <button id="open-tag-modal-btn" class="primary pill" type="button">
+        <svg class="ic"><use href="#ic-check"></use></svg>
+        Tag selected
+      </button>
+    </div>
+  </div>
+
+  <div id="tag-modal" class="modal-backdrop hidden">
+    <div class="modal-panel tag-panel" role="dialog" aria-modal="true" aria-labelledby="tag-modal-title" tabindex="-1">
+      <h2 id="tag-modal-title">Tag <span id="tag-modal-count"></span></h2>
+      <div class="tag-thumbs" id="tag-thumbs"></div>
+      <div class="field">
+        <div class="field-label-row">
+          <label for="date-input">Date taken</label>
+          <button id="clear-date-btn" class="link-btn" type="button">Remove date</button>
+        </div>
+        <input type="date" id="date-input" />
+      </div>
+      <div class="field">
+        <label for="time-input">Time (optional)</label>
+        <input type="time" id="time-input" disabled />
+      </div>
+      <div class="field">
+        <div class="field-label-row">
+          <label for="place-input">Location</label>
+          <button id="clear-location-btn" class="link-btn" type="button">Remove pin</button>
+        </div>
+        <input type="text" id="place-input" placeholder="e.g. 19 rue Charles Bertheau 75013" />
+        <ul id="geo-results"></ul>
+        <div id="recent-addresses" class="recent-addresses hidden" aria-label="Recent addresses">
+          <span class="recent-addresses-label">Recent addresses</span>
+          <div id="recent-address-list" class="recent-address-list"></div>
+        </div>
+        <div id="map"></div>
+      </div>
+      <p id="tag-hint" style="color: var(--text-muted); font-size: 0.85rem; margin: 4px 0 0;">
+        Set a location, a date, or both — leaving a field blank keeps its current value unchanged.
+        Leave time blank to tag the day only. Use "Remove pin" / "Remove date" to clear an existing tag instead.
+      </p>
+      <div id="tag-error" role="alert"></div>
+      <div class="modal-actions">
+        <button id="tag-cancel-btn" type="button">Cancel</button>
+        <button id="apply-btn" class="primary" data-loading-text="Tagging…">Apply &amp; tag</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="photo-viewer-modal" class="modal-backdrop photo-viewer-backdrop hidden">
+    <div class="modal-panel photo-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="photo-viewer-title" tabindex="-1">
+      <div class="photo-viewer-header">
+        <h2 id="photo-viewer-title"></h2>
+        <button id="photo-viewer-close" type="button" aria-label="Close enlarged photo">Close</button>
+      </div>
+      <img id="photo-viewer-image" alt="" />
+    </div>
+  </div>
+
+  <div id="review-modal" class="modal-backdrop hidden">
+    <div class="modal-panel review-panel" role="dialog" aria-modal="true" aria-labelledby="review-modal-title" tabindex="-1">
+      <h2 id="review-modal-title">Review split</h2>
+      <p>Drag a corner to reshape a selection, drag inside it to move it, or draw a new box over an empty area. Nothing is saved until you confirm.</p>
+      <form id="review-detection-form" class="review-detection-controls">
+        <div class="field">
+          <label for="review-photo-count">Photos on this scan</label>
+          <input id="review-photo-count" type="number" min="1" max="20" step="1" placeholder="Auto" aria-describedby="review-detection-hint" />
+        </div>
+        <button id="review-detect" type="submit">Detect again</button>
+        <span id="review-detection-hint">Replaces current selections. Leave blank for automatic count.</span>
+      </form>
+      <p id="review-detection-status" role="status" aria-live="polite"></p>
+      <div class="review-body">
+        <canvas id="review-canvas"></canvas>
+        <ul id="review-list" aria-label="Detected photos"></ul>
+      </div>
+      <div id="review-error" role="alert" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="review-discard" class="danger-solid" type="button" data-loading-text="Discarding…">Discard scan</button>
+        <button id="review-confirm" class="primary" type="button" data-loading-text="Creating…">Create photos</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-modal" class="modal-backdrop hidden">
+    <div class="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <h2 id="confirm-title">Confirm</h2>
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-ok" class="danger-solid">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

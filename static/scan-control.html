@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f5f4f1" />
+  <title>Start a scan · Mass Scanner</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="scan-control-page">
+  <main class="scan-control" aria-labelledby="scan-control-title">
+    <h1 id="scan-control-title">Mass Scanner</h1>
+    <p class="scan-control-intro">Place the photos on the scanner, then start a scan.</p>
+    <button id="remote-scan-btn" class="primary" type="button">Scan now</button>
+    <div id="remote-progress" class="remote-progress" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100">
+      <div id="remote-progress-bar"></div>
+    </div>
+    <p id="remote-status" class="remote-status" role="status" aria-live="polite">Checking scanner status…</p>
+    <p class="scan-control-note">The scan and photo review will appear on the main Mass Scanner screen.</p>
+  </main>
+  <script src="/scan-control.js"></script>
+</body>
+</html>
