@@ -1,12 +1,13 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
 import app
+from scan_jobs import ScanCoordinator
 
 
 class ExtractGeometryValidationTests(unittest.TestCase):
@@ -23,11 +24,15 @@ class ExtractGeometryValidationTests(unittest.TestCase):
             image.save(raw_directory / self.filename)
         self.valid_quad = [[0, 0], [19, 0], [19, 19], [0, 19]]
         self.review = {"raw": self.filename, "quads": [self.valid_quad]}
+        coordinator = ScanCoordinator(
+            discover=Mock(), transfer=Mock(), load_image=app.load_scan_image,
+            detect=Mock(return_value=[self.valid_quad]), raw_directory=raw_directory,
+        )
+        coordinator.prepare_review(raw_directory / self.filename)
         for replacement in (
             patch.object(app, "RAW_DIR", raw_directory),
             patch.object(app, "CROPPED_DIR", self.cropped_directory),
-            patch.object(app, "_pending_reviews", [self.review]),
-            patch.object(app, "_scan_state", {"stage": "review", **self.review}),
+            patch.object(app, "scan_coordinator", coordinator),
         ):
             replacement.start()
             self.addCleanup(replacement.stop)
@@ -55,7 +60,7 @@ class ExtractGeometryValidationTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 400, response.text)
                     self.assertIn("Selection 2:", response.json()["detail"])
                     self.assertEqual(list(self.cropped_directory.iterdir()), [])
-                    self.assertEqual(app._pending_reviews, [self.review])
+                    self.assertEqual(self.client.get("/api/scan/status").json()["pending_review"], self.review)
             extract.assert_not_called()
 
     def test_degenerate_selection_preserves_existing_empty_success(self) -> None:
@@ -66,7 +71,7 @@ class ExtractGeometryValidationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), {"photos": []})
         self.assertEqual(list(self.cropped_directory.iterdir()), [])
-        self.assertEqual(app._pending_reviews, [])
+        self.assertIsNone(self.client.get("/api/scan/status").json()["pending_review"])
 
 
 if __name__ == "__main__":

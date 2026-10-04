@@ -1,7 +1,6 @@
 import logging
 import shutil
 import tempfile
-import threading
 import time
 from collections.abc import Iterator
 from datetime import datetime
@@ -17,8 +16,9 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from crop import detect_photo_regions, extract_photo, load_scan_image, validate_quad_points, write_crop_outputs
-from escl import ScannerNotFound, discover_scanner, scan_to_file
+from escl import discover_scanner, scan_to_file
 from exiftags import apply_tags, read_tag_status
+from scan_jobs import ScanCoordinator
 
 BASE_DIR = Path(__file__).parent
 RAW_DIR = BASE_DIR / "scans" / "raw"
@@ -51,63 +51,13 @@ class _ScanStatusAccessLogFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(_ScanStatusAccessLogFilter())
 
-_scan_lock = threading.Lock()
-_scan_state_lock = threading.Lock()
-_pending_reviews: list[dict[str, Any]] = []
-_scan_state: dict[str, Any] = {
-    "stage": "idle",
-    "done": None,
-    "total": None,
-    "error": None,
-    "raw": None,
-    "quads": None,
-}
-
-
-def _set_scan_state(**kwargs):
-    with _scan_state_lock:
-        _scan_state.update(kwargs)
-
-
-def _run_scan():
-    _set_scan_state(stage="discovering", done=None, total=None, error=None, raw=None, quads=None)
-    try:
-        scanner = discover_scanner()
-    except ScannerNotFound as e:
-        _set_scan_state(stage="error", error=str(e))
-        return
-
-    def on_progress(stage, done, total):
-        _set_scan_state(stage=stage, done=done, total=total)
-
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    raw_path = RAW_DIR / f"scan_{stamp}.jpg"
-    try:
-        scan_to_file(scanner, str(raw_path), on_progress=on_progress)
-    except httpx.HTTPError as e:
-        _set_scan_state(stage="error", error=f"Scan failed: {e}")
-        return
-
-    _set_scan_state(stage="detecting", done=None, total=None)
-    threading.Thread(target=_detect_scan, args=(raw_path,), daemon=True).start()
-
-
-def _detect_scan(raw_path: Path):
-    try:
-        img = load_scan_image(raw_path)
-        quads = detect_photo_regions(img)
-    except Exception as e:
-        with _scan_state_lock:
-            if _scan_state["stage"] == "detecting":
-                _scan_state.update(stage="error", error=f"Couldn't prepare scan review: {e}")
-        return
-
-    with _scan_state_lock:
-        review = {"raw": raw_path.name, "quads": quads}
-        _pending_reviews.append(review)
-        _pending_reviews.sort(key=lambda item: item["raw"])
-        if not _scan_lock.locked():
-            _scan_state.update(stage="review", raw=review["raw"], quads=quads)
+scan_coordinator = ScanCoordinator(
+    discover=discover_scanner,
+    transfer=scan_to_file,
+    load_image=load_scan_image,
+    detect=detect_photo_regions,
+    raw_directory=RAW_DIR,
+)
 
 
 def safe_cropped_path(filename: str) -> Path:
@@ -141,13 +91,8 @@ def safe_tag_path(filename: str) -> Path:
 
 @app.post("/api/scan")
 def api_scan():
-    if not _scan_lock.acquire(blocking=False):
+    if not scan_coordinator.start():
         raise HTTPException(409, "A scan is already in progress")
-    try:
-        threading.Thread(target=_run_scan_and_release, daemon=True).start()
-    except BaseException:
-        _scan_lock.release()
-        raise
     return {"started": True}
 
 
@@ -156,31 +101,9 @@ def scan_control_page():
     return FileResponse(BASE_DIR / "static" / "scan-control.html")
 
 
-def _run_scan_and_release():
-    try:
-        _run_scan()
-    finally:
-        _scan_lock.release()
-        with _scan_state_lock:
-            if _scan_state["stage"] == "detecting" and _pending_reviews:
-                review = _pending_reviews[0]
-                _scan_state.update(stage="review", raw=review["raw"], quads=review["quads"])
-
-
 @app.get("/api/scan/status")
-def api_scan_status():
-    with _scan_state_lock:
-        return {**_scan_state, "pending_review": _pending_reviews[0] if _pending_reviews else None}
-
-
-def _remove_pending_review(filename: str):
-    with _scan_state_lock:
-        _pending_reviews[:] = [review for review in _pending_reviews if review["raw"] != filename]
-        if _scan_state["stage"] == "review":
-            if _pending_reviews:
-                _scan_state.update(raw=_pending_reviews[0]["raw"], quads=_pending_reviews[0]["quads"])
-            else:
-                _scan_state.update(stage="idle", done=None, total=None, error=None, raw=None, quads=None)
+def api_scan_status() -> dict[str, Any]:
+    return dict(scan_coordinator.status())
 
 
 class DetectBody(BaseModel):
@@ -191,17 +114,9 @@ class DetectBody(BaseModel):
 def api_detect(filename: str, body: DetectBody) -> dict[str, Any]:
     path = safe_raw_path(filename)
     try:
-        quads = detect_photo_regions(load_scan_image(path), expected_count=body.expected_count)
+        return dict(scan_coordinator.redetect(path, filename=filename, expected_count=body.expected_count))
     except (OSError, ValueError, cv2.error) as error:
         raise HTTPException(422, f"Couldn't detect photos: {error}") from error
-    result = {"raw": filename, "quads": quads, "expected_count": body.expected_count}
-    with _scan_state_lock:
-        for review in _pending_reviews:
-            if review["raw"] == filename:
-                review.update(result)
-        if _scan_state["stage"] == "review" and _scan_state["raw"] == filename:
-            _scan_state.update(quads=quads)
-    return result
 
 
 @app.get("/api/photos")
@@ -336,7 +251,7 @@ def api_extract(filename: str, body: ExtractBody):
         output_paths = write_crop_outputs(outputs(), 92)
     except OSError as exc:
         raise HTTPException(500, str(exc)) from exc
-    _remove_pending_review(filename)
+    scan_coordinator.remove_review(filename)
     return {"photos": [path.name for path in output_paths]}
 
 
@@ -344,7 +259,7 @@ def api_extract(filename: str, body: ExtractBody):
 def api_discard_raw(filename: str):
     path = safe_raw_path(filename)
     path.unlink()
-    _remove_pending_review(filename)
+    scan_coordinator.remove_review(filename)
     return {"ok": True}
 
 

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import cv2
 import httpx
@@ -15,6 +15,7 @@ from PIL import Image
 
 import app
 import crop
+from scan_jobs import ScanCoordinator
 
 QUAD = [[0, 0], [1, 0], [1, 1], [0, 1]]
 PHOTO = np.full((8, 12, 3), 80, dtype=np.uint8)
@@ -32,15 +33,15 @@ class ExtractWriteFailureTests(unittest.TestCase):
         self.raw_filename = "scan_write_failure.jpg"
         (self.raw_directory / self.raw_filename).write_bytes(b"fixture")
         self.review = {"raw": self.raw_filename, "quads": [QUAD]}
-        state = {
-            "stage": "review", "done": None, "total": None, "error": None,
-            "raw": self.raw_filename, "quads": [QUAD],
-        }
+        coordinator = ScanCoordinator(
+            discover=Mock(), transfer=Mock(), load_image=Mock(return_value=PHOTO),
+            detect=Mock(return_value=[QUAD]), raw_directory=self.raw_directory,
+        )
+        coordinator.prepare_review(self.raw_directory / self.raw_filename)
         for replacement in (
             patch.object(app, "RAW_DIR", self.raw_directory),
             patch.object(app, "CROPPED_DIR", self.cropped_directory),
-            patch.object(app, "_pending_reviews", [self.review]),
-            patch.object(app, "_scan_state", state),
+            patch.object(app, "scan_coordinator", coordinator),
             patch.object(app, "load_scan_image", return_value=PHOTO),
             patch.object(app, "extract_photo", return_value=PHOTO),
         ):

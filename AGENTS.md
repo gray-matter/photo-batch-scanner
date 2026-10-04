@@ -21,7 +21,7 @@ Primary run workflow: same as README **[Run](README.md#run)**.
 
 ## Gotchas
 
-- Keep `app.py` in one server process: `_scan_lock`, `_scan_state`, and `_pending_reviews` are process-local. Importing it creates the scan directories.
+- Keep `app.py` in one server process: `ScanCoordinator` owns process-local locks, status, and pending reviews. Importing `app.py` creates the scan directories.
 - Keep review coordinates in full-resolution pixels after EXIF orientation correction by `crop.load_scan_image`; canvas display coordinates are scaled.
 - Treat the `@unittest.expectedFailure` tests in `tests/` as known defects, not passing coverage. See [REFACTORING_PLAN.md](REFACTORING_PLAN.md); remove each decorator when its defect is fixed.
 - Check skipped tests: metadata tests require `exiftool`; gallery DOM tests require Chrome or Chromium.
