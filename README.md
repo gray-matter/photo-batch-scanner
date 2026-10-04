@@ -1,65 +1,69 @@
 # Mass Scanner
 
-A local web app for digitizing batches of printed photos: it drives a Canon TS7750i (or any eSCL/AirScan-capable scanner) directly over the network, proposes a split of a multi-photo flatbed scan for you to validate and adjust, lets you fix orientation, and geotags/dates the results in bulk — all from one page, backed by `exiftool` and OpenStreetMap.
+A local FastAPI web app for digitizing batches of printed photos with an eSCL/AirScan network scanner. Review and adjust the detected photo boundaries before extracting JPEGs, then rotate, date, and geotag the photos from a browser.
 
 ## Requirements
 
-- Python >= 3.11
-- [uv](https://docs.astral.sh/uv/) for dependency management
-- [exiftool](https://exiftool.org/) (`brew install exiftool`)
-- A scanner reachable on the local network over eSCL/AirScan (most network-connected Canon, Epson, and HP scanners from the last decade support this)
+- Python 3.11 or newer (`.python-version` selects 3.11).
+- uv for Python dependency management.
+- `exiftool` on `PATH` for reading and writing photo metadata.
+- An eSCL/AirScan scanner reachable through local-network mDNS and HTTP for the scan workflow.
+- Internet access for Leaflet assets, OpenStreetMap tiles, and Nominatim address search.
+- Development only: Node.js for JavaScript syntax checks; Google Chrome or Chromium for the gallery DOM tests. The Python tests use standard-library `unittest`.
 
 ## Setup
 
+From the repository root:
+
 ```bash
-uv sync
+uv sync --locked
 ```
 
 ## Run
 
 ```bash
-uv run uvicorn app:app --host 0.0.0.0
+uv run uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-On the computer running the app, open http://localhost:8000. To let another device on the same network start scans, open `http://<computer-ip>:8000/scan-control` on that device. Keep the main app open at `http://<computer-ip>:8000`; when a scan is ready, its split-review dialog opens there automatically.
+Open [localhost:8000](http://localhost:8000) on the server computer. For another device on the same network, use `http://<computer-ip>:8000` for the main app or `http://<computer-ip>:8000/scan-control` for scan controls only. Keep the main app open to review scans started from the control page. Allow incoming connections on port 8000 if the firewall blocks access.
 
-The server must stay running on the computer that can reach the scanner. Allow incoming connections to port 8000 in that computer's firewall if prompted. The app currently has no sign-in or access code, so only use this on a trusted network: devices that can reach it can use its scan and photo-management endpoints.
+The server has no authentication and serves the scan files directly. Run it on a trusted network. Pending reviews are held in memory and disappear on restart, although saved raw files remain on disk.
 
-Workflow:
+1. Place prints on the scanner bed with gaps between them, then click **Scan now**. The app discovers a scanner, saves a 600 dpi JPEG in `scans/raw/`, and proposes photo boundaries.
+2. In the review dialog, drag corners or whole selections, draw new boxes, or remove unwanted selections. Optionally set **Photos on this scan** (1–20) and click **Detect again**; the browser remembers the count. Check the result and adjust any remaining mismatches manually.
+3. Click **Create photos** to write JPEGs to `scans/cropped/`. Face detection attempts to orient each crop upright; use the gallery controls to adjust rotation. **Discard scan** deletes the raw scan instead. Successful extraction retains the raw scan.
+4. Select photos, choose a map location and/or date, and click **Apply & tag** to write metadata. The dialog also supports removing location or date tags. Tagging leaves photos in their current folder.
+5. Click **Mark tagged done** to move pending photos with both location and date tags into `scans/done/`, or mark an individual photo done. Enable **Show done** to view completed photos and restore them to the pending gallery.
 
-1. Place several prints on the scanner bed (a small gap between them helps detection, but touching prints can still be split apart in the next step).
-2. Click **Scan now** in the main app or on the `/scan-control` page. The app discovers the scanner over mDNS, triggers a 600dpi scan, and detects a candidate photo on the bed for each print — no files are created yet.
-3. A review modal opens with one four-corner outline per detected photo. Drag a corner to adjust the selection, drag inside it to move it, or draw a new box over an empty area. Remove any selection you don't want, then click **Create photos** — only then are the crops written to `scans/cropped/`. **Discard scan** abandons the whole scan instead.
-   Set **Photos on this scan** (1–20, or leave blank for automatic count) and click **Detect again** to replace the current selections using the saved raw scan. Your browser remembers the count and applies it to subsequent scan reviews. Detection tries nearby thresholds and clear local gaps to approach the requested count; unresolved mismatches remain visible for manual adjustment.
-4. Each created photo is auto-rotated upright if a face was detected clearly enough to tell which way is up (otherwise, rotate it manually from the gallery).
-5. Select the photos that share a date and place, search the address on the map, pick a date, and click **Apply & tag**. This writes GPS and date EXIF tags via `exiftool` and moves the files to `scans/done/`.
+To auto-crop an existing TIFF/JPEG without the review dialog:
 
-You can also skip steps 2–3 and drop TIFF/JPEG scans straight into `scans/raw/` from another scanning app; run `uv run python crop.py scans/raw/<file>` to auto-crop one straight to `scans/cropped/` without the review step.
+```bash
+uv run python crop.py /path/to/scan.tiff
+```
+
+The CLI writes JPEGs to `photos_decoupees/` beside the input file. Move those JPEGs into `scans/cropped/` to manage them in the gallery; refresh the page after copying them.
 
 ## Layout
 
-```
-app.py              # FastAPI app: scan trigger, review/extract, gallery, rotate, geocode proxy, EXIF tagging
-escl.py             # eSCL (AirScan) client: mDNS discovery + HTTP scan job control, no vendor driver needed
-crop.py             # Multi-photo detection (candidate quads) + perspective extraction + auto-rotate by face detection (also runnable standalone)
-exiftags.py         # exiftool wrapper for writing GPS position + date tags
-static/
-  index.html        # Single-page UI: gallery, review-split modal, rotate controls, date + map form
-  app.js            # Client logic: gallery state, canvas-based quad review/split tool, Leaflet map, geocoding
-  scan-control.html # Scan-only page for a second device on the local network
-  scan-control.js   # Scan trigger and progress/status display for the control page
-  style.css         # Design tokens (light/dark) and layout
-scans/              # Runtime data, gitignored: raw/ (whole scans, pending review or archived), cropped/ (pending tag), done/ (tagged)
-data/               # face_detection_yunet.onnx: OpenCV's YuNet face detector, used to guess upright orientation
-pyproject.toml      # Dependencies (fastapi, httpx, zeroconf, opencv-python, pillow, ...)
-```
-
-## Tests
-
-Run the standard-library test suite with:
-
-```bash
-uv run python -m unittest discover -s tests -v
+```text
+mass-scanner/                      # Local scanner app and photo-processing tools
+├── app.py                         # FastAPI entrypoint, scan/review lifecycle, gallery and tagging routes
+├── escl.py                        # mDNS discovery and eSCL HTTP scan jobs; also a standalone scan CLI
+├── crop.py                        # Photo detection, perspective extraction, face-based rotation and crop CLI
+├── exiftags.py                    # exiftool subprocess wrapper for metadata status and edits
+├── static/                        # Browser UI served directly by FastAPI
+│   ├── index.html                 # Gallery, scan review and tagging dialogs
+│   ├── app.js                     # Gallery state, boundary editor, Leaflet map and API calls
+│   ├── scan-control.html          # Scan-only interface for a second device
+│   ├── scan-control.js            # Remote scan trigger and progress polling
+│   └── style.css                  # Shared layout and light/dark styling
+├── data/                          # Bundled face-detection model
+│   └── face_detection_yunet.onnx   # OpenCV YuNet model used to estimate upright orientation
+├── tests/                         # Geometry, metadata, write-failure, scan lifecycle and gallery DOM tests
+├── pyproject.toml                 # Project metadata and Python dependency requirements
+└── uv.lock                        # Locked Python dependency versions
 ```
 
-The gallery filename safety tests also run `static/app.js` in headless Chrome or Chromium to inspect the rendered DOM. They skip when neither browser is installed.
+## Additional docs
+
+- [AGENTS.md](AGENTS.md) — development commands, conventions, and agent gotchas.
