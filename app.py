@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import threading
 import time
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
-from crop import detect_photo_regions, extract_photo, load_scan_image
+from crop import detect_photo_regions, extract_photo, load_scan_image, write_crop_outputs
 from escl import ScannerNotFound, discover_scanner, scan_to_file
 from exiftags import apply_tags, read_tag_status
 
@@ -319,16 +320,19 @@ def api_extract(filename: str, body: ExtractBody):
     path = safe_raw_path(filename)
     img = load_scan_image(path)
     stem = path.stem
-    new_names = []
-    for i, quad in enumerate(body.quads, start=1):
-        crop = extract_photo(img, quad)
-        if crop is None:
-            continue
-        out_name = f"{stem}_photo_{i:02d}.jpg"
-        cv2.imwrite(str(CROPPED_DIR / out_name), crop, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
-        new_names.append(out_name)
+
+    def outputs() -> Iterator[tuple[Path, Any]]:
+        for i, quad in enumerate(body.quads, start=1):
+            crop = extract_photo(img, quad)
+            if crop is not None:
+                yield CROPPED_DIR / f"{stem}_photo_{i:02d}.jpg", crop
+
+    try:
+        output_paths = write_crop_outputs(outputs(), 92)
+    except OSError as exc:
+        raise HTTPException(500, str(exc)) from exc
     _remove_pending_review(filename)
-    return {"photos": new_names}
+    return {"photos": [path.name for path in output_paths]}
 
 
 @app.post("/api/raw/{filename}/discard")

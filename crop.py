@@ -1,5 +1,6 @@
 import sys
-from collections.abc import Sequence
+import tempfile
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 import cv2
 import numpy as np
@@ -265,6 +266,33 @@ def extract_photo(img: np.ndarray, quad: Sequence[Sequence[float]]) -> np.ndarra
     return crop
 
 
+def write_crop_outputs(outputs: Iterable[tuple[Path, np.ndarray]], jpeg_quality: int) -> list[Path]:
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for output_path, image in outputs:
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=output_path.parent, prefix=f".{output_path.stem}-", suffix=".jpg", delete=False
+                ) as temporary_file:
+                    temporary_path = Path(temporary_file.name)
+                    staged.append((temporary_path, output_path))
+                if not cv2.imwrite(str(temporary_path), image, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]):
+                    raise OSError("JPEG encoding failed")
+            except Exception as exc:
+                raise OSError(f"Couldn't write crop {output_path.name}: {exc}") from exc
+
+        for temporary_path, output_path in staged:
+            try:
+                temporary_path.replace(output_path)
+            except OSError as exc:
+                raise OSError(f"Couldn't publish crop {output_path.name}: {exc}") from exc
+        return [output_path for _, output_path in staged]
+    finally:
+        # A failed publication may already have replaced a photo; only staging files are ours to remove.
+        for temporary_path, _ in staged:
+            temporary_path.unlink(missing_ok=True)
+
+
 def crop_scanned_photos(image_path: Path, output_dir: Path, threshold_val: int = 200, jpeg_quality: int = 92) -> list[Path]:
     """Détecte et extrait automatiquement les tirages d'un scan, sans étape
     de validation : utilisé par le CLI autonome (voir `__main__`)."""
@@ -272,14 +300,15 @@ def crop_scanned_photos(image_path: Path, output_dir: Path, threshold_val: int =
     quads = detect_photo_regions(img, threshold_val)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_paths: list[Path] = []
-    for count, quad in enumerate(quads, start=1):
-        crop = extract_photo(img, quad)
-        if crop is None:
-            continue
-        out_file = output_dir / f"{image_path.stem}_photo_{count:02d}.jpg"
-        cv2.imwrite(str(out_file), crop, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
-        output_paths.append(out_file)
+
+    def outputs() -> Iterator[tuple[Path, np.ndarray]]:
+        for count, quad in enumerate(quads, start=1):
+            crop = extract_photo(img, quad)
+            if crop is not None:
+                yield output_dir / f"{image_path.stem}_photo_{count:02d}.jpg", crop
+
+    output_paths = write_crop_outputs(outputs(), jpeg_quality)
+    for out_file in output_paths:
         print(f"  -> Extrait : {out_file.name}")
 
     print(f"Total pour {image_path.name} : {len(output_paths)} photo(s) extraite(s).")
@@ -293,4 +322,8 @@ if __name__ == "__main__":
 
     input_file = Path(sys.argv[1])
     out_dir = input_file.parent / "photos_decoupees"
-    crop_scanned_photos(input_file, out_dir)
+    try:
+        crop_scanned_photos(input_file, out_dir)
+    except OSError as exc:
+        print(f"Erreur : {exc}", file=sys.stderr)
+        sys.exit(1)
