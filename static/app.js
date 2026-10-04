@@ -263,9 +263,9 @@ function renderCard({ filename, gps, time }) {
   card.setAttribute("aria-label", `Select ${filename} for tagging`);
   card.innerHTML = `
     <div class="card-thumb">
-      <img src="/cropped/${encodeURIComponent(filename)}?t=${Date.now()}" alt="Scanned photo ${filename}" />
+      <img />
       <span class="sel-indicator"><svg class="ic"><use href="#ic-check"></use></svg></span>
-      <button class="enlarge-photo-btn" data-action="enlarge" title="View larger" aria-label="View ${filename} larger">⤢</button>
+      <button class="enlarge-photo-btn" data-action="enlarge" title="View larger">⤢</button>
     </div>
     <div class="card-body">
       <div class="card-tags">${badgeHtml(gps, time)}</div>
@@ -279,6 +279,11 @@ function renderCard({ filename, gps, time }) {
       </div>
     </div>
   `;
+
+  const image = card.querySelector("img");
+  image.src = `/cropped/${encodeURIComponent(filename)}?t=${Date.now()}`;
+  image.alt = `Scanned photo ${filename}`;
+  card.querySelector("button[data-action=enlarge]").setAttribute("aria-label", `View ${filename} larger`);
 
   card.addEventListener("click", (evt) => handleCardClick(evt, filename, card));
   card.addEventListener("keydown", (evt) => {
@@ -347,9 +352,9 @@ function renderDoneCard({ filename, gps, time }) {
   card.setAttribute("aria-label", `Select ${filename} for tagging`);
   card.innerHTML = `
     <div class="card-thumb">
-      <img src="/done/${encodeURIComponent(filename)}?t=${Date.now()}" alt="Done photo ${filename}" />
+      <img />
       <span class="sel-indicator"><svg class="ic"><use href="#ic-check"></use></svg></span>
-      <button class="enlarge-photo-btn" data-action="enlarge" title="View larger" aria-label="View ${filename} larger">⤢</button>
+      <button class="enlarge-photo-btn" data-action="enlarge" title="View larger">⤢</button>
     </div>
     <div class="card-body">
       <div class="card-tags">${badgeHtml(gps, time)}</div>
@@ -360,6 +365,11 @@ function renderDoneCard({ filename, gps, time }) {
       </div>
     </div>
   `;
+
+  const image = card.querySelector("img");
+  image.src = `/done/${encodeURIComponent(filename)}?t=${Date.now()}`;
+  image.alt = `Done photo ${filename}`;
+  card.querySelector("button[data-action=enlarge]").setAttribute("aria-label", `View ${filename} larger`);
 
   card.addEventListener("click", (evt) => handleCardClick(evt, filename, card));
   card.addEventListener("keydown", (evt) => {

@@ -196,11 +196,9 @@ class GalleryFilenameSafetyTests(unittest.TestCase):
             },
         )
 
-    @unittest.expectedFailure
     def test_pending_gallery_filename_stays_text_and_uses_encoded_image_path(self) -> None:
         self.assert_card_is_safe("pending")
 
-    @unittest.expectedFailure
     def test_done_gallery_filename_stays_text_and_uses_encoded_image_path(self) -> None:
         self.assert_card_is_safe("done")
 
