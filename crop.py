@@ -62,18 +62,33 @@ def find_background_bands(density: np.ndarray, gap_frac: float, min_width: int) 
     return bands
 
 
+def validate_quad_points(quad: Sequence[Sequence[float]]) -> np.ndarray:
+    """Validate coordinate structure before geometry or OpenCV processing."""
+    try:
+        pts = np.asarray(quad, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Each selection must contain exactly four [x, y] points") from exc
+    if pts.shape != (4, 2):
+        raise ValueError("Each selection must contain exactly four [x, y] points")
+    if not np.isfinite(pts).all():
+        raise ValueError("Selection coordinates must be finite numbers")
+    if (np.abs(pts) > np.finfo(np.float32).max).any():
+        raise ValueError("Selection coordinates exceed the supported range")
+    return pts.astype(np.float32)
+
+
 def order_quad_points(pts: np.ndarray) -> np.ndarray:
-    """Ordonne 4 points en (haut-gauche, haut-droit, bas-droit, bas-gauche),
-    quelle que soit leur inclinaison, pour que la transformation de
-    perspective associe chaque coin du tirage au bon coin du rectangle de
-    sortie."""
-    s = pts.sum(axis=1)
-    diff = pts[:, 0] - pts[:, 1]
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    tr = pts[np.argmax(diff)]
-    bl = pts[np.argmin(diff)]
-    return np.array([tl, tr, br, bl], dtype=np.float32)
+    """Order convex corners clockwise in image coordinates (y increases down).
+
+    Start at the smallest x+y, breaking ties by y then x. This preserves
+    TL/TR/BR/BL for rectangles and starts a symmetric diamond at its top.
+    """
+    points = validate_quad_points(pts).astype(np.float64)
+    relative = points - points.mean(axis=0)
+    angles = np.arctan2(relative[:, 1], relative[:, 0])
+    ordered = points[np.argsort(angles)]
+    start = np.lexsort((ordered[:, 0], ordered[:, 1], ordered.sum(axis=1)))[0]
+    return np.roll(ordered, -int(start), axis=0).astype(np.float32)
 
 
 def load_scan_image(image_path: Path) -> np.ndarray:
@@ -240,11 +255,19 @@ def _split_local_gaps(mask: np.ndarray, expected_count: int, min_area: float) ->
 
 def extract_photo(img: np.ndarray, quad: Sequence[Sequence[float]]) -> np.ndarray | None:
     """Rectify a four-corner selection by perspective, then detect upright rotation."""
-    pts = np.array(quad, dtype=np.float32)
-    if pts.ndim != 2 or pts.shape != (4, 2) or not np.isfinite(pts).all():
+    try:
+        pts = validate_quad_points(quad)
+    except ValueError:
+        return None
+    if len(np.unique(pts, axis=0)) != 4:
         return None
 
     pts = order_quad_points(pts)
+    edges = np.roll(pts.astype(np.float64), -1, axis=0) - pts
+    next_edges = np.roll(edges, -1, axis=0)
+    turns = edges[:, 0] * next_edges[:, 1] - edges[:, 1] * next_edges[:, 0]
+    if not (turns > 0).all():
+        return None
     tl, tr, br, bl = pts
     width = int(round(max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl))))
     height = int(round(max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr))))

@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
-from crop import detect_photo_regions, extract_photo, load_scan_image, write_crop_outputs
+from crop import detect_photo_regions, extract_photo, load_scan_image, validate_quad_points, write_crop_outputs
 from escl import ScannerNotFound, discover_scanner, scan_to_file
 from exiftags import apply_tags, read_tag_status
 
@@ -310,13 +310,18 @@ def api_rotate(filename: str, body: RotateBody) -> dict[str, bool]:
 
 
 class ExtractBody(BaseModel):
-    quads: list[list[tuple[float, float]]]  # each selection: polygon points in raw-image pixel coords
+    quads: list[list[list[float]]]  # each selection: polygon points in raw-image pixel coords
 
 
 @app.post("/api/raw/{filename}/extract")
 def api_extract(filename: str, body: ExtractBody):
     if not body.quads:
         raise HTTPException(400, "At least one selection is required")
+    for i, quad in enumerate(body.quads, start=1):
+        try:
+            validate_quad_points(quad)
+        except ValueError as exc:
+            raise HTTPException(400, f"Selection {i}: {exc}") from exc
     path = safe_raw_path(filename)
     img = load_scan_image(path)
     stem = path.stem
