@@ -53,3 +53,11 @@ scans/              # Runtime data, gitignored: raw/ (whole scans, pending revie
 data/               # face_detection_yunet.onnx: OpenCV's YuNet face detector, used to guess upright orientation
 pyproject.toml      # Dependencies (fastapi, httpx, zeroconf, opencv-python, pillow, ...)
 ```
+
+## Tests
+
+Run the standard-library test suite with:
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
